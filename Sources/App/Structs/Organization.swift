@@ -4,4 +4,5 @@ public struct Organization: Content {
     let uuid: String
     let name: String
     let tier: String
+    let device_token: String?
 }

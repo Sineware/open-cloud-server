@@ -61,7 +61,7 @@ public func returnUserRowsAsArray(_ rows: PostgresRowSequence) async throws -> [
                 email: try randomRow["email"].decode((String).self, context: .default),
                 username: try randomRow["username"].decode((String).self, context: .default),
                 fullname: try randomRow["fullname"].decode((String).self, context: .default),
-                passhash: try randomRow["passhash"].decode((String).self, context: .default),
+                passhash: (try? randomRow["passhash"].decode((String).self, context: .default)) ?? "",
                 accesstoken: try randomRow["accesstoken"].decode((String).self, context: .default),
                 lastip: try? randomRow["lastip"].decode((String).self, context: .default),
                 id: try randomRow["id"].decode((Int).self, context: .default),
@@ -81,7 +81,8 @@ public func returnOrganizationRowsAsArray(_ rows: PostgresRowSequence) async thr
                 id: try randomRow["id"].decode((Int).self, context: .default),
                 uuid: try randomRow["uuid"].decode((String).self, context: .default),
                 name: try randomRow["name"].decode((String).self, context: .default),
-                tier: try randomRow["tier"].decode((String).self, context: .default)
+                tier: try randomRow["tier"].decode((String).self, context: .default),
+                device_token: try randomRow["device_token"].decode((String).self, context: .default)
         )
         organizations.append(organization)
         print(organization)
@@ -134,6 +135,29 @@ public func loginUser(_ db: PostgresConnection, _ email: String, _ password: Str
         }
     }
 }
+public func loginUserWithKeycloak(_ db: PostgresConnection, _ userInfo: UserInfoResponse, _ tokenResponse: TokenResponse) async throws {
+    // Check if user exists in database based on sub to uuid
+    print("About to query select")
+    let rows = try await db.query("""
+                        SELECT * FROM users WHERE uuid = uuid(\(userInfo.sub))
+                        """, logger: logger)
+    let user = try await returnUserRowsAsArray(rows).first
+    print(user)
+    if user != nil {
+        // Update user info
+        print("Updating user info")
+        
+        try await db.query("""
+                        UPDATE users SET username=\(userInfo.preferred_username), email=\(userInfo.email), fullname=\(userInfo.name), accesstoken=\(tokenResponse.access_token) WHERE uuid = uuid(\(userInfo.sub))
+                        """, logger: logger)
+    } else {
+        print("Creating new user")
+        // Create user
+        try await db.query("""
+                        INSERT INTO users (uuid, email, username, fullname, accesstoken) VALUES (uuid(\(userInfo.sub)), \(userInfo.email), \(userInfo.preferred_username), \(userInfo.name), \(tokenResponse.access_token))
+                        """, logger: logger)
+    }
+}
 
 /// Returns a User for the corresponding AccessToken, or nil if none exists. Does not include Organizations
 public func getUserByAccessToken(_ db: PostgresConnection, _ accessToken: String) async throws -> User? {
@@ -161,7 +185,7 @@ public func getUserOrganizations(_ db: PostgresConnection, _ uuid: String) async
 }
 public func getOrganizationByUUID(_ db: PostgresConnection, _ uuid: String) async throws -> Organization? {
     let rows = try await db.query("""
-                                  SELECT * FROM organizations WHERE uuid=uuid(\(uuid))
+                                  SELECT * FROM organizations WHERE uuid = uuid(\(uuid))
                                   """, logger: logger)
     return try await returnOrganizationRowsAsArray(rows).first
 }
@@ -175,6 +199,21 @@ public func isUserInOrganization(_ db: PostgresConnection, _ userUUID: String, _
                                     WHERE users.uuid = uuid(\(userUUID)) AND organizations.uuid = uuid(\(organizationUUID));
                                   """, logger: logger)
     return try await rows.collect().count > 0
+}
+public func createOrg(_ db: PostgresConnection, _ o: Organization, _ userUUID: String) async throws {
+    let uuid = UUID().uuidString
+    try await db.query("""
+                       INSERT INTO organizations (uuid, name, tier) VALUES (uuid(\(uuid)), \(o.name), \(o.tier))
+                       """, logger: logger)
+    try await db.query("""
+                       INSERT INTO users_organizations (user_id, organization_id) VALUES ((SELECT id FROM users WHERE uuid=uuid(\(userUUID))), (SELECT id FROM organizations WHERE uuid=uuid(\(uuid))))
+                       """, logger: logger)
+}
+public func getOrgByDeviceToken(_ db: PostgresConnection, _ token: String) async throws -> Organization? {
+    let rows = try await db.query("""
+                                  SELECT * FROM organizations WHERE device_token=\(token)
+                                  """, logger: logger)
+    return try await returnOrganizationRowsAsArray(rows).first
 }
 
 // Website
