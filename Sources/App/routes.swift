@@ -23,6 +23,7 @@ public struct HelloDevicePayload: Codable {
     let clientType: String
     let accessToken: String
     let uuid: String
+    let name: String?
 }
 public struct PingPayload: Codable {
     let text: String?
@@ -88,6 +89,12 @@ public struct RouterConnectionDisconnectedPayload: Codable {
     let publicPort: Int
 }
 
+// extension service WS message container
+public struct ExtensionServiceWSMessageContainer: Codable {
+    let clientUUID: String
+    let msg: String
+}
+
 // {action: result payload: for: register, status: true}
 public struct ResultPayload<T: Codable>: Content {
     let forAction: String
@@ -123,7 +130,15 @@ public struct ClientState {
     let ws: WebSocket
     var name: String
     let type: String
+    var orgUUID: String?
 }
+public struct ClientStateCodable: Codable {
+    let uuid: String
+    var name: String
+    let type: String
+    var orgUUID: String?
+}
+
 public var states: [String: ClientState] = [:]
 public var routerPortMappings: [Int: RouterClientRegisterPortPayload] = [:]
 
@@ -209,8 +224,9 @@ func routes(_ app: Application) throws {
         return "Hello, world!"
     }
 
-    // Internal service sockets
-    var routerServerWS: WebSocket? = nil;
+    // OCS2 Websocket Gateway
+    var routerServiceWS: WebSocket? = nil;
+    var extensionServiceWS: WebSocket? = nil;
     app.webSocket("gateway", maxFrameSize: .init(integerLiteral: 1 << 24)) { req, ws async in
         print("New Websocket Connection from " + (req.peerAddress?.description ?? "Unknown Address"))
         let logger = Logger(label: (req.peerAddress?.description ?? "Unknown Address") + "-logger")
@@ -243,6 +259,10 @@ func routes(_ app: Application) throws {
                     // if this request contains an ID, we should return it with any responses
                     let id: String? = (try JSONDecoder().decode(WSMessageRawAction.self, from: msgData)).id
 
+                    if(action != ACTION_ROUTER_PASS_PACKET && action! != ACTION_PING) {
+                        print(text)
+                    }
+
                     // Unprotected actions
                     switch action {
                     case ACTION_PING:
@@ -273,7 +293,7 @@ func routes(_ app: Application) throws {
                                 await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_DEVICE_HELLO, status: false, data: ErrorPayload(msg: "Invalid Access Token")), id)
                                 return
                             } else {
-                                routerServerWS = ws;
+                                routerServiceWS = ws;
                                 uuid = CLIENT_TYPE_ROUTERSERVER;
                                 await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_DEVICE_HELLO, status: true, data: true), id)
                             }
@@ -283,7 +303,7 @@ func routes(_ app: Application) throws {
                                 await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_DEVICE_HELLO, status: false, data: ErrorPayload(msg: "Invalid Access Token")), id)
                                 return
                             }
-                            states.updateValue(ClientState(uuid: msg.payload.uuid, ws: ws, name: org.name, type: msg.payload.clientType), forKey: msg.payload.uuid)
+                            states.updateValue(ClientState(uuid: msg.payload.uuid, ws: ws, name: msg.payload.name ?? "Unnamed Device", type: msg.payload.clientType, orgUUID: org.uuid), forKey: msg.payload.uuid)
                             uuid = msg.payload.uuid;
                             await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_DEVICE_HELLO, status: true, data: org), id)
                         }
@@ -319,6 +339,18 @@ func routes(_ app: Application) throws {
                             }
                             let websites = try await getOrganizationWebsites(db, msg.payload.uuid)
                             await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_GET_ORG_WEBSITES, status: true, data: websites), id)
+                        case ACTION_GET_ORG_DEVICES:
+                            let msg: WSMessage = try JSONDecoder().decode(WSMessage<GetOrgPayload>.self, from: msgData)
+                            // check if user is in the request organization
+                            guard try await isUserInOrganization(db, uuid!, msg.payload.uuid) else {
+                                await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_GET_ORG_DEVICES, status: false, data: ErrorPayload(msg: "User is not in organization")), id)
+                                return
+                            }
+                            // filter states by orgUUID
+                            let devices = states.filter({ $0.value.orgUUID == msg.payload.uuid }).map({ $0.value })
+                            // map ClientState to ClientStateCodable
+                            let devicesCodable = devices.map({ ClientStateCodable(uuid: $0.uuid, name: $0.name, type: $0.type) })
+                            await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_GET_ORG_DEVICES, status: true, data: devicesCodable), id)
                         case ACTION_CREATE_ORG:
                             let msg: WSMessage = try JSONDecoder().decode(WSMessage<CreateOrgPayload>.self, from: msgData)
                             do{
@@ -337,7 +369,7 @@ func routes(_ app: Application) throws {
                         // router
                         case ACTION_ROUTER_CLIENT_REGISTER_PORT:
                             let msg: WSMessage = try JSONDecoder().decode(WSMessage<RouterClientRegisterPortPayload>.self, from: msgData)
-                            guard let routerServer = routerServerWS else {
+                            guard let routerServer = routerServiceWS else {
                                 await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_ROUTER_CLIENT_REGISTER_PORT, status: false, data: ErrorPayload(msg: "Failed to register port. Try again later?")), id)
                                 return
                             }
@@ -360,7 +392,7 @@ func routes(_ app: Application) throws {
                             await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_ROUTER_CLIENT_REGISTER_PORT, status: true, data: payload), id)
                         case ACTION_ROUTER_PASS_PACKET:
                             let msg: WSMessage = try JSONDecoder().decode(WSMessage<RouterPassPacketPayload>.self, from: msgData)
-                            guard let routerServer = routerServerWS else {
+                            guard let routerServer = routerServiceWS else {
                                 await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_ROUTER_PASS_PACKET, status: false, data: ErrorPayload(msg: "Failed to pass packet. Try again later?")), id)
                                 return
                             }
@@ -375,16 +407,16 @@ func routes(_ app: Application) throws {
                                 try? await getState(externalUUID: client.clientUUID)?.ws.send(text)
                                 // result
                                 //await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_ROUTER_PASS_PACKET, status: true, data: true), id)
-                            } else if(getState()?.type == CLIENT_TYPE_ROUTERCLIENT) {
+                            } else if(getState()?.type == CLIENT_TYPE_ROUTERCLIENT || getState()?.type == CLIENT_TYPE_PROLINUX) {
                                 //print("from router client")
-                                // send packet to routerServerWS
+                                // send packet to routerServiceWS
                                 try? await routerServer.send(text)
                                 // result
                                 //await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_ROUTER_PASS_PACKET, status: true, data: true), id)
                             }
                         case ACTION_ROUTER_CONNECTION_DISCONNECTED:
                             let msg: WSMessage = try JSONDecoder().decode(WSMessage<RouterConnectionDisconnectedPayload>.self, from: msgData)
-                            guard let routerServer = routerServerWS else {
+                            guard let routerServer = routerServiceWS else {
                                 await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_ROUTER_PASS_PACKET, status: false, data: ErrorPayload(msg: "Failed to pass packet. Try again later?")), id)
                                 return
                             }
@@ -395,13 +427,32 @@ func routes(_ app: Application) throws {
                                     return
                                 }
                                 try? await getState(externalUUID: client.clientUUID)?.ws.send(text)
-                            } else if(getState()?.type == CLIENT_TYPE_ROUTERCLIENT) {
+                            } else if(getState()?.type == CLIENT_TYPE_ROUTERCLIENT || getState()?.type == CLIENT_TYPE_PROLINUX) {
                                 try? await routerServer.send(text)
                             }
-                            
+                        case ACTION_EXTSERVICE_PASS_MSG:
+                            let msg: WSMessage = try JSONDecoder().decode(WSMessage<ExtensionServiceWSMessageContainer>.self, from: msgData)
+                            // check clientUUID exists
+                            guard let client = getState(externalUUID: msg.payload.clientUUID) else {
+                                await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_EXTSERVICE_PASS_MSG, status: false, data: ErrorPayload(msg: "Failed to pass message. Try again later?")), id)
+                                return
+                            }
+                            // send message to client
+                            try? await client.ws.send(msg.payload.msg)
+
+
                         default:
-                            await sendWSError(ws, "Invalid Action")
-                            return
+                            // Hand off to Extension Service
+                            if let extensionService = extensionServiceWS {
+                                guard let uuid = uuid else {
+                                    await sendWSError(ws, "Unable to handle action, no UUID!")
+                                    return
+                                }
+                                try? await extensionService.send(String(data: (try! JSONEncoder().encode(ExtensionServiceWSMessageContainer(clientUUID: uuid, msg: text))), encoding: .utf8)!)
+                            } else {
+                                await sendWSError(ws, "Unable to handle action, no extension service available!")
+                                return
+                            }
                         }
                     }
                 } catch {

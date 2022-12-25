@@ -237,6 +237,7 @@ public func getWebsiteByDomain(_ db: PostgresConnection, _ domain: String) async
     return try await returnWebsiteRowsAsArray(rows).first
 }
 
+
 // ~~~ Update Server ~~~
 func returnUpdateRowsAsArray(_ rows: PostgresRowSequence) async throws -> [Update] {
     var arr = [Update]()
