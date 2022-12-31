@@ -53,6 +53,9 @@ public struct LoginPayload: Codable {
 }
 public struct GetSelfPayload: Codable {
 }
+public struct UpdateSelectedOrgPayload: Codable {
+    let orgUUID: String
+}
 public struct GetOrgPayload: Codable {
     let uuid: String
 }
@@ -87,6 +90,12 @@ public struct RouterPassPacketPayload: Codable {
 public struct RouterConnectionDisconnectedPayload: Codable {
     let connectionID: String
     let publicPort: Int
+}
+public struct DeviceLogPayload: Codable {
+    let deviceUUID: String
+    let from: String
+    let type: String
+    let msg: String
 }
 
 // extension service WS message container
@@ -259,7 +268,7 @@ func routes(_ app: Application) throws {
                     // if this request contains an ID, we should return it with any responses
                     let id: String? = (try JSONDecoder().decode(WSMessageRawAction.self, from: msgData)).id
 
-                    if(action != ACTION_ROUTER_PASS_PACKET && action! != ACTION_PING) {
+                    if(action != ACTION_ROUTER_PASS_PACKET && action! != ACTION_PING && action! != ACTION_DEVICE_LOG) {
                         print(text)
                     }
 
@@ -330,6 +339,17 @@ func routes(_ app: Application) throws {
                                 return
                             }
                             await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_GET_ORG, status: true, data: org), id)
+                        case ACTION_UPDATE_SELECTED_ORG:
+                            // update orgUUID in state
+                            let msg: WSMessage = try JSONDecoder().decode(WSMessage<UpdateSelectedOrgPayload>.self, from: msgData)
+                            // check if user is in the requested organization
+                            guard try await isUserInOrganization(db, uuid!, msg.payload.orgUUID) else {
+                                await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_UPDATE_SELECTED_ORG, status: false, data: ErrorPayload(msg: "User is not in organization")), id)
+                                return
+                            }
+                            states[uuid!]!.orgUUID = msg.payload.orgUUID
+                            await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_UPDATE_SELECTED_ORG, status: true, data: true), id)
+
                         case ACTION_GET_ORG_WEBSITES:
                             let msg: WSMessage = try JSONDecoder().decode(WSMessage<GetOrgWebsitesPayload>.self, from: msgData)
                             // check if user is in the request organization
@@ -430,6 +450,15 @@ func routes(_ app: Application) throws {
                             } else if(getState()?.type == CLIENT_TYPE_ROUTERCLIENT || getState()?.type == CLIENT_TYPE_PROLINUX) {
                                 try? await routerServer.send(text)
                             }
+                        case ACTION_DEVICE_LOG:
+                            //let msg: WSMessage = try JSONDecoder().decode(WSMessage<DeviceLogPayload>.self, from: msgData)
+                            // broadcast to all clients connected with orgUUID set
+                            for state in states {
+                                if(state.value.orgUUID == getState()?.orgUUID) {
+                                    try? await state.value.ws.send(text)
+                                }
+                            }
+
                         case ACTION_EXTSERVICE_PASS_MSG:
                             let msg: WSMessage = try JSONDecoder().decode(WSMessage<ExtensionServiceWSMessageContainer>.self, from: msgData)
                             // check clientUUID exists
