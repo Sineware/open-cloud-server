@@ -102,6 +102,7 @@ public struct DeviceLogPayload: Codable {
 public struct ExtensionServiceWSMessageContainer: Codable {
     let clientUUID: String
     let msg: String
+    let states: [String: ClientStateCodable]? // when sending to extension service
 }
 
 // {action: result payload: for: register, status: true}
@@ -146,6 +147,9 @@ public struct ClientStateCodable: Codable {
     var name: String
     let type: String
     var orgUUID: String?
+}
+func mapClientStatesToCodable(_ clientState: [String: ClientState]) -> [String: ClientStateCodable] {
+    return clientState.mapValues { ClientStateCodable(uuid: $0.uuid, name: $0.name, type: $0.type, orgUUID: $0.orgUUID) }
 }
 
 public var states: [String: ClientState] = [:]
@@ -304,6 +308,16 @@ func routes(_ app: Application) throws {
                             } else {
                                 routerServiceWS = ws;
                                 uuid = CLIENT_TYPE_ROUTERSERVER;
+                                await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_DEVICE_HELLO, status: true, data: true), id)
+                            }
+                        } else if(msg.payload.clientType == CLIENT_TYPE_EXTSERVICE) {
+                            // check accesstoken against INTERNAL_SERVICE_TOKEN env
+                            if(msg.payload.accessToken != Environment.get("INTERNAL_SERVICE_TOKEN")!) {
+                                await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_DEVICE_HELLO, status: false, data: ErrorPayload(msg: "Invalid Access Token")), id)
+                                return
+                            } else {
+                                extensionServiceWS = ws;
+                                uuid = CLIENT_TYPE_EXTSERVICE;
                                 await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_DEVICE_HELLO, status: true, data: true), id)
                             }
                         } else {
@@ -468,8 +482,6 @@ func routes(_ app: Application) throws {
                             }
                             // send message to client
                             try? await client.ws.send(msg.payload.msg)
-
-
                         default:
                             // Hand off to Extension Service
                             if let extensionService = extensionServiceWS {
@@ -477,7 +489,7 @@ func routes(_ app: Application) throws {
                                     await sendWSError(ws, "Unable to handle action, no UUID!")
                                     return
                                 }
-                                try? await extensionService.send(String(data: (try! JSONEncoder().encode(ExtensionServiceWSMessageContainer(clientUUID: uuid, msg: text))), encoding: .utf8)!)
+                                await sendWSMessage(extensionService, ACTION_EXTSERVICE_PASS_MSG, ExtensionServiceWSMessageContainer(clientUUID: uuid, msg: text, states: mapClientStatesToCodable(states)))
                             } else {
                                 await sendWSError(ws, "Unable to handle action, no extension service available!")
                                 return
@@ -492,7 +504,9 @@ func routes(_ app: Application) throws {
             await sendWSMessage(ws, ACTION_HELLO, HelloPayload(status: true))
             try await ws.onClose.get()
             try await db.close()
-            logger.info("Client disconnected! \(uuid!)")
+            logger.info("Client disconnected! \(uuid ?? "Unregistered")")
+            // Remove client from states
+            states.removeValue(forKey: uuid ?? "")
         } catch {
             print("Explosion: \(error)")
             exit(-2)
