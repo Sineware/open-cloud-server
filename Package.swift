@@ -8,8 +8,8 @@ let package = Package(
     ],
     dependencies: [
         // 💧 A server-side Swift web framework.
-        .package(url: "https://github.com/vapor/vapor.git", from: "4.0.0"),
-        .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.11.0"),
+        .package(url: "https://github.com/vapor/vapor.git", from: "4.69.2"),
+        .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.12.1"),
     ],
     targets: [
         .target(

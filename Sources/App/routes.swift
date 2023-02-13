@@ -68,7 +68,11 @@ public struct CreateOrgPayload: Codable {
     let website: String
     let logo: String
 }
-
+public struct StreamTerminalPayload: Codable {
+    let deviceUUID: String
+    let fromDevice: Bool
+    let text: String
+}
 // router
 public struct RouterClientRegisterPortPayload: Codable {
     let port: Int
@@ -139,7 +143,7 @@ public struct ClientState {
     let uuid: String
     let ws: WebSocket
     var name: String
-    let type: String
+    let type: String // csv where 0 is the main type, others are subtypes (ex. "prolinux,plamo")
     var orgUUID: String?
 }
 public struct ClientStateCodable: Codable {
@@ -441,7 +445,7 @@ func routes(_ app: Application) throws {
                                 try? await getState(externalUUID: client.clientUUID)?.ws.send(text)
                                 // result
                                 //await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_ROUTER_PASS_PACKET, status: true, data: true), id)
-                            } else if(getState()?.type == CLIENT_TYPE_ROUTERCLIENT || getState()?.type == CLIENT_TYPE_PROLINUX) {
+                            } else if(getState()?.type == CLIENT_TYPE_ROUTERCLIENT || getState()?.type.components(separatedBy: ",")[0] == CLIENT_TYPE_PROLINUX) {
                                 //print("from router client")
                                 // send packet to routerServiceWS
                                 try? await routerServer.send(text)
@@ -461,7 +465,7 @@ func routes(_ app: Application) throws {
                                     return
                                 }
                                 try? await getState(externalUUID: client.clientUUID)?.ws.send(text)
-                            } else if(getState()?.type == CLIENT_TYPE_ROUTERCLIENT || getState()?.type == CLIENT_TYPE_PROLINUX) {
+                            } else if(getState()?.type == CLIENT_TYPE_ROUTERCLIENT || getState()?.type.components(separatedBy: ",")[0] == CLIENT_TYPE_PROLINUX) {
                                 try? await routerServer.send(text)
                             }
                         case ACTION_DEVICE_LOG:
@@ -471,6 +475,27 @@ func routes(_ app: Application) throws {
                                 if(state.value.orgUUID == getState()?.orgUUID) {
                                     try? await state.value.ws.send(text)
                                 }
+                            }
+                        case ACTION_DEVICE_STREAM_TERMINAL:
+                            let msg: WSMessage = try JSONDecoder().decode(WSMessage<StreamTerminalPayload>.self, from: msgData)
+                            // pass to ws in state
+                            if(msg.payload.fromDevice && getState()?.type.components(separatedBy: ",")[0] == CLIENT_TYPE_PROLINUX) {
+                                // broadcast to all clients connected with orgUUID set
+                                for state in states {
+                                    if(state.value.orgUUID == getState()?.orgUUID) {
+                                        try? await state.value.ws.send(text)
+                                    }
+                                }
+                            } else {
+                                // get target device state
+                                let deviceState = getState(externalUUID: msg.payload.deviceUUID);
+                                // make sure device is in org 
+                                if(deviceState?.orgUUID != getState()?.orgUUID) {
+                                    await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_DEVICE_STREAM_TERMINAL, status: false, data: ErrorPayload(msg: "Device is not in your organization!")), id)
+                                    return
+                                }
+                                // send to device
+                                try? await getState(externalUUID: msg.payload.deviceUUID)?.ws.send(text)
                             }
 
                         case ACTION_EXTSERVICE_PASS_MSG:
