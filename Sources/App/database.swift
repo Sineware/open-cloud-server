@@ -203,7 +203,7 @@ public func isUserInOrganization(_ db: PostgresConnection, _ userUUID: String, _
 public func createOrg(_ db: PostgresConnection, _ o: Organization, _ userUUID: String) async throws {
     let uuid = UUID().uuidString
     try await db.query("""
-                       INSERT INTO organizations (uuid, name, tier) VALUES (uuid(\(uuid)), \(o.name), \(o.tier))
+                       INSERT INTO organizations (uuid, name, tier, device_token) VALUES (uuid(\(uuid)), \(o.name), \(o.tier), \(o.device_token))
                        """, logger: logger)
     try await db.query("""
                        INSERT INTO users_organizations (user_id, organization_id) VALUES ((SELECT id FROM users WHERE uuid=uuid(\(userUUID))), (SELECT id FROM organizations WHERE uuid=uuid(\(uuid))))

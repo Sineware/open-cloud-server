@@ -8,7 +8,7 @@ struct WSMessageRawAction: Codable {
 struct WSMessage<PayloadType: Codable>: Codable {
     let id: String?
     let action: String
-    let payload: PayloadType
+    var payload: PayloadType
 }
 
 // Payloads
@@ -73,6 +73,17 @@ public struct StreamTerminalPayload: Codable {
     let fromDevice: Bool
     let text: String
 }
+public struct DeviceExecPayload: Codable {
+    let deviceUUID: String
+    let fromDevice: Bool
+    let fromUUID: String
+    var idWrapper: String?
+    let command: String
+
+    let data: String?
+    let exitCode: String?
+}
+
 // router
 public struct RouterClientRegisterPortPayload: Codable {
     let port: Int
@@ -397,7 +408,7 @@ func routes(_ app: Application) throws {
                                     uuid: "",
                                     name: msg.payload.name,
                                     tier: "basic",
-                                    device_token: nil
+                                    device_token: UUID().uuidString
                                 ), uuid!)
                                 await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_CREATE_ORG, status: true, data: true), id)
                             } catch {
@@ -497,7 +508,22 @@ func routes(_ app: Application) throws {
                                 // send to device
                                 try? await getState(externalUUID: msg.payload.deviceUUID)?.ws.send(text)
                             }
-
+                        case ACTION_DEVICE_EXEC:
+                            var msg: WSMessage = try JSONDecoder().decode(WSMessage<DeviceExecPayload>.self, from: msgData)
+                            if(msg.payload.fromDevice && getState()?.type.components(separatedBy: ",")[0] == CLIENT_TYPE_PROLINUX) {
+                                if(getState(externalUUID: msg.payload.fromUUID)?.orgUUID == getState()?.orgUUID) {
+                                    // send as a result to the client
+                                    await sendWSMessage(getState(externalUUID: msg.payload.fromUUID)?.ws, ACTION_RESULT, ResultPayload(forAction: ACTION_DEVICE_EXEC, status: true, data: msg.payload), msg.payload.idWrapper)
+                                }
+                            } else {
+                                let deviceState = getState(externalUUID: msg.payload.deviceUUID);
+                                if(deviceState?.orgUUID != getState()?.orgUUID) {
+                                    await sendWSMessage(ws, ACTION_RESULT, ResultPayload(forAction: ACTION_DEVICE_EXEC, status: false, data: ErrorPayload(msg: "Device is not in your organization!")), id)
+                                    return
+                                }
+                                msg.payload.idWrapper = id
+                                await sendWSMessage(deviceState?.ws, ACTION_DEVICE_EXEC, msg.payload, id)
+                            }
                         case ACTION_EXTSERVICE_PASS_MSG:
                             let msg: WSMessage = try JSONDecoder().decode(WSMessage<ExtensionServiceWSMessageContainer>.self, from: msgData)
                             // check clientUUID exists

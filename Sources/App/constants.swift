@@ -28,6 +28,7 @@ let ACTION_EXTSERVICE_PASS_MSG = "extservice-pass-msg"
 let ACTION_GET_ORG_DEVICES = "get-org-devices"
 let ACTION_DEVICE_LOG = "device-log"
 let ACTION_DEVICE_STREAM_TERMINAL = "device-stream-terminal"
+let ACTION_DEVICE_EXEC = "device-exec"
 
 let CLIENT_TYPE_USER = "user"
 let CLIENT_TYPE_DEVICE = "device"
