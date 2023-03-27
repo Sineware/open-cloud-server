@@ -238,13 +238,13 @@ func routes(_ app: Application) throws {
         let db = try await connectDatabase()
         let res = try? await getSingleUpdatebyUUID(db, req.parameters.get("uuid") ?? "")
         try await db.close()
-        return res ?? Update(id: -1, uuid: "", product: "", variant: "", channel: "", buildnum: 0, buildstring: "", isreleased: false)
+        return res ?? Update(id: -1, uuid: "", product: "", variant: "", channel: "", buildnum: 0, buildstring: "", isreleased: false, url: "", jwt: "")
     }
     app.get("updates", ":product", ":variant", ":channel") { req async throws -> Update in
         let db = try await connectDatabase()
         let res = try? await getSingleUpdate(db, req.parameters.get("product") ?? "", req.parameters.get("variant") ?? "", req.parameters.get("channel") ?? "")
         try await db.close()
-        return res ?? Update(id: -1, uuid: "", product: "", variant: "", channel: "", buildnum: 0, buildstring: "", isreleased: false)
+        return res ?? Update(id: -1, uuid: "", product: "", variant: "", channel: "", buildnum: 0, buildstring: "", isreleased: false, url: "", jwt: "")
     }
 
     // Webhook

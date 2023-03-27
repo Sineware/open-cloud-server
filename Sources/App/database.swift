@@ -251,7 +251,9 @@ func returnUpdateRowsAsArray(_ rows: PostgresRowSequence) async throws -> [Updat
                 channel: try randomRow["channel"].decode((String).self, context: .default),
                 buildnum: try randomRow["buildnum"].decode((Int).self, context: .default),
                 buildstring: try randomRow["buildstring"].decode((String).self, context: .default),
-                isreleased: try randomRow["isreleased"].decode((Bool).self, context: .default)
+                isreleased: try randomRow["isreleased"].decode((Bool).self, context: .default),
+                url: try randomRow["url"].decode((String).self, context: .default),
+                jwt: try randomRow["jwt"].decode((String).self, context: .default)
         )
         arr.append(update)
     }

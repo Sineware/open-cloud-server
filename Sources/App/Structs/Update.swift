@@ -8,4 +8,6 @@ public struct Update: Content {
     let buildnum: Int
     let buildstring: String
     let isreleased: Bool
+    let url: String
+    let jwt: String
 }
