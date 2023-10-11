@@ -253,7 +253,8 @@ func returnUpdateRowsAsArray(_ rows: PostgresRowSequence) async throws -> [Updat
                 buildstring: try randomRow["buildstring"].decode((String).self, context: .default),
                 isreleased: try randomRow["isreleased"].decode((Bool).self, context: .default),
                 url: try randomRow["url"].decode((String).self, context: .default),
-                jwt: try randomRow["jwt"].decode((String).self, context: .default)
+                jwt: try randomRow["jwt"].decode((String).self, context: .default),
+                arch: try randomRow["arch"].decode((String).self, context: .default)
         )
         arr.append(update)
     }
@@ -271,7 +272,7 @@ public func getAllUpdates(_ db: PostgresConnection) async throws -> [Update] {
 /// Returns a single Update entry for the corresponding product, variant, and channel.
 public func getSingleUpdate(_ db: PostgresConnection, _ product: String, _ variant: String, _ channel: String) async throws -> Update? {
     let rows = try await db.query("""
-                       SELECT * FROM updates WHERE product=\(product) AND variant=\(variant) AND channel=\(channel)
+                       SELECT * FROM updates WHERE product=\(product) AND variant=\(variant) AND channel=\(channel) ORDER BY buildnum DESC LIMIT 1
                        """, logger: logger)
     return try await returnUpdateRowsAsArray(rows).first
 }
@@ -279,7 +280,7 @@ public func getSingleUpdate(_ db: PostgresConnection, _ product: String, _ varia
 /// Returns a single Update entry for the corresponding UUID.
 public func getSingleUpdatebyUUID(_ db: PostgresConnection, _ uuid: String) async throws -> Update? {
     let rows = try await db.query("""
-                        SELECT * FROM updates WHERE uuid=uuid(\(uuid))
+                        SELECT * FROM updates WHERE uuid=uuid(\(uuid)) ORDER BY buildnum DESC LIMIT 1
                         """, logger: logger)
     return try await returnUpdateRowsAsArray(rows).first
 }

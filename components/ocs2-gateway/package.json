@@ -1,0 +1,30 @@
+{
+  "name": "ocs2-gateway",
+  "version": "1.0.0",
+  "description": "Sineware Open Cloud Server Gateway Service",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "ts-node src/index.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sineware/open-cloud-server.git"
+  },
+  "author": "Seshan Ravikumar",
+  "license": "AGPL-3.0",
+  "bugs": {
+    "url": "https://github.com/Sineware/open-cloud-server/issues"
+  },
+  "homepage": "https://github.com/Sineware/open-cloud-server#readme",
+  "dependencies": {
+    "@types/node": "^20.8.4",
+    "@types/ws": "^8.5.7",
+    "ts-node": "^10.9.1",
+    "ws": "^8.14.2"
+  },
+  "optionalDependencies": {
+    "bufferutil": "^4.0.7",
+    "utf-8-validate": "^6.0.3"
+  }
+}

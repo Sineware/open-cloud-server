@@ -10,4 +10,5 @@ public struct Update: Content {
     let isreleased: Bool
     let url: String
     let jwt: String
+    let arch: String
 }
