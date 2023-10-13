@@ -75,7 +75,7 @@ wss.on('connection', function connection(ws) {
             const msg: v1WSMessage = JSON.parse(data.toString());
 
             if(v2APIEnabled) ws.send(v2MessageTransformer(msg, "upstream"));
-            else ws.send(data);
+            else ws.send(JSON.stringify(data));
         } catch(e) {
             console.error(e);
             ws.close();
